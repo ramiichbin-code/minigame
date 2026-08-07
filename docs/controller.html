@@ -5,24 +5,155 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Minigame — Controller</title>
   <style>
-    body{font-family:Arial,Helvetica,sans-serif;text-align:center;padding:10px;background:#fafafa}
-    .row{display:flex;justify-content:center;margin-top:18px}
-    button{font-size:20px;padding:14px;margin:6px;width:28%;border-radius:8px;border:1px solid #ccc;cursor:pointer;transition:all 0.1s}
-    button:active,.active{background:#4CAF50;color:white;transform:scale(0.98)}
-    #status{color:#555;font-weight:bold;min-height:20px}
-    .status-connecting{color:#ff9800}
-    .status-connected{color:#4CAF50}
-    .status-error{color:#f44336}
-    .status-disconnected{color:#999}
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+
+    h1 {
+      color: white;
+      font-size: 32px;
+      margin-bottom: 15px;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      letter-spacing: 2px;
+    }
+
+    #status {
+      color: white;
+      font-weight: bold;
+      font-size: 16px;
+      min-height: 24px;
+      margin-bottom: 30px;
+      height: 24px;
+      opacity: 0.9;
+      animation: fadeIn 0.5s ease-in;
+    }
+
+    .status-connecting {
+      color: #ffd700;
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-connected {
+      color: #00ff88;
+      animation: pulse 0.5s;
+    }
+
+    .status-error {
+      color: #ff4444;
+      animation: shake 0.5s;
+    }
+
+    .status-disconnected {
+      color: #ffaa00;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+
+    .row {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+
+    button {
+      width: 80px;
+      height: 80px;
+      font-size: 36px;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+      -webkit-touch-callout: none;
+      touch-action: manipulation;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+    }
+
+    button:active,
+    button.active {
+      transform: scale(0.92) translateY(0);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      background: linear-gradient(135deg, #00ff88 0%, #00cc6f 100%);
+      color: #333;
+    }
+
+    #jump {
+      width: 100px;
+      height: 100px;
+      font-size: 48px;
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    }
+
+    #jump:active,
+    #jump.active {
+      background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+      color: #333;
+    }
+
+    .info {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      margin-top: 20px;
+      max-width: 300px;
+      line-height: 1.5;
+    }
+
+    /* Responsive */
+    @media (max-width: 480px) {
+      body { padding: 15px; }
+      h1 { font-size: 24px; }
+      .row { gap: 10px; }
+      button { width: 70px; height: 70px; font-size: 30px; }
+      #jump { width: 85px; height: 85px; font-size: 40px; }
+    }
   </style>
 </head>
 <body>
-  <h1>Controller</h1>
+  <h1>🎮 Controller</h1>
   <div id="status">Lade...</div>
   <div class="row">
-    <button id="left">◀</button>
-    <button id="jump">⤴</button>
-    <button id="right">▶</button>
+    <button id="left" title="Nach links">◀</button>
+    <button id="jump" title="Sprung">⤴</button>
+    <button id="right" title="Nach rechts">▶</button>
+  </div>
+  <div class="info">
+    <p>Drücke die Buttons zum Steuern</p>
   </div>
 
   <script>
