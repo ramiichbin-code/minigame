@@ -12,17 +12,26 @@
 
   peer.on('open', (id) => {
     peerIdEl.textContent = id;
-    info.textContent = 'Scanne den QR-Code mit dem Handy-Controller oder öffne: ' + location.origin + '/controller.html?peer=' + id;
+    // build a controller URL that keeps the current path (works on GitHub Pages subpath)
+    const base = location.origin + location.pathname.replace(/\/$/, '');
+    const controllerUrl = base + '/controller.html?peer=' + encodeURIComponent(id);
+    info.textContent = 'Scanne den QR-Code mit dem Handy-Controller oder öffne: ' + controllerUrl;
 
-    // QR über Google Chart API
-    const controllerUrl = location.origin + '/controller.html?peer=' + encodeURIComponent(id);
-    const img = document.createElement('img');
-    img.alt = 'Scan to connect';
-    img.width = 200;
-    img.height = 200;
-    img.src = 'https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=' + encodeURIComponent(controllerUrl);
+    // Generate QR client-side into a canvas to avoid external image failures
     qrDiv.innerHTML = '<p>Scan mit dem Handy:</p>';
-    qrDiv.appendChild(img);
+    const canvasQr = document.createElement('canvas');
+    canvasQr.width = 200; canvasQr.height = 200;
+    qrDiv.appendChild(canvasQr);
+    if (window.QRCode && typeof QRCode.toCanvas === 'function') {
+      QRCode.toCanvas(canvasQr, controllerUrl, { width: 200 }, function (err) {
+        if (err) console.error('QR generation error', err);
+      });
+    } else {
+      // fallback: show plain link if QR lib missing
+      const a = document.createElement('a');
+      a.href = controllerUrl; a.textContent = controllerUrl; a.target = '_blank';
+      qrDiv.appendChild(a);
+    }
   });
 
   peer.on('connection', (c) => {
