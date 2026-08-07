@@ -15,88 +15,83 @@
     conn: null,
     connected: false,
     buttonStates: { left: false, right: false, jump: false },
-    reconnectCount: 0
+    reconnectCount: 0,
+    peerjsReady: false
   };
 
-  // Schnelle Fehlerbehandlung
+  // Status Update
   function updateStatus(msg, type = 'info') {
     status.textContent = msg;
     status.className = `status-${type}`;
     console.log(`[${type}]`, msg);
   }
 
-  // PeerJS mit TIMEOUT laden
-  function loadPeerJS() {
+  // Wait for PeerJS or timeout
+  function ensurePeerJS() {
     return new Promise((resolve) => {
       if (window.Peer) {
+        state.peerjsReady = true;
         resolve();
         return;
       }
 
-      let loaded = false;
-      const timeout = setTimeout(() => {
-        if (!loaded) {
-          console.warn('PeerJS timeout - trying fallback');
-          updateStatus('PeerJS Fallback...', 'connecting');
-          loadFallbackPeerJS().then(resolve);
-        }
-      }, 3000); // 3 Sekunden Timeout
-
-      const checkPeer = setInterval(() => {
+      const checkInterval = setInterval(() => {
         if (window.Peer) {
-          loaded = true;
-          clearTimeout(timeout);
-          clearInterval(checkPeer);
+          state.peerjsReady = true;
+          clearInterval(checkInterval);
           resolve();
         }
       }, 100);
-    });
-  }
 
-  // Fallback CDN
-  function loadFallbackPeerJS() {
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js';
-      script.async = true;
-      script.onload = () => {
-        updateStatus('PeerJS geladen', 'connecting');
+      // HARD TIMEOUT nach 5 Sekunden
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        if (!state.peerjsReady) {
+          console.error('PeerJS failed to load after 5s');
+          updateStatus('PeerJS Fehler - Versuche trotzdem...', 'error');
+        }
         resolve();
-      };
-      script.onerror = () => {
-        updateStatus('PeerJS offline - Verbindung wird versucht...', 'error');
-        resolve(); // Trotzdem weitermachen
-      };
-      document.head.appendChild(script);
+      }, 5000);
     });
   }
 
-  // Peer initialisieren
-  function initPeer() {
+  // Init Peer mit Fehlertoleranz
+  async function initPeer() {
+    if (!window.Peer) {
+      console.warn('Peer not available yet');
+      setTimeout(initPeer, 1000);
+      return;
+    }
+
     try {
       state.peer = new Peer();
       
       state.peer.on('open', (id) => {
+        console.log('Peer opened:', id);
         attemptConnection();
       });
 
       state.peer.on('error', (err) => {
-        console.error('Peer error:', err);
+        console.error('Peer error:', err.type, err);
         updateStatus(`Fehler: ${err.type}`, 'error');
       });
 
       state.peer.on('disconnected', () => {
         state.connected = false;
-        scheduleReconnect();
+        updateStatus('Getrennt - versuche erneut...', 'disconnected');
+        setTimeout(() => {
+          if (!state.connected && state.peer) {
+            state.peer.reconnect();
+          }
+        }, 1500);
       });
     } catch (e) {
-      console.error('Init error:', e);
-      updateStatus('Fehler beim Starten', 'error');
+      console.error('Peer init error:', e);
       setTimeout(initPeer, 2000);
     }
   }
 
-  // Verbindung
+  // Connect to game screen
   function attemptConnection() {
     if (state.connected || !state.peer) return;
 
@@ -110,39 +105,47 @@
         state.connected = true;
         state.reconnectCount = 0;
         updateStatus('✓ Verbunden!', 'connected');
+        console.log('Connected to peer:', peerTo);
       });
 
       state.conn.on('close', () => {
         state.connected = false;
-        scheduleReconnect();
+        updateStatus('Verbindung weg', 'disconnected');
+        retryConnection();
       });
 
       state.conn.on('error', (err) => {
         state.connected = false;
-        updateStatus('Verbindung weg', 'disconnected');
-        scheduleReconnect();
+        console.error('Conn error:', err);
+        updateStatus('Verbindungsfehler', 'error');
+        retryConnection();
       });
     } catch (e) {
-      console.error('Connection error:', e);
-      scheduleReconnect();
+      console.error('Connect error:', e);
+      retryConnection();
     }
   }
 
-  function scheduleReconnect() {
+  function retryConnection() {
     if (state.reconnectCount >= 3) {
       updateStatus('Zu viele Versuche', 'error');
       return;
     }
     state.reconnectCount++;
-    updateStatus(`Versuche ${state.reconnectCount}...`, 'connecting');
+    updateStatus(`Retry ${state.reconnectCount}...`, 'connecting');
     setTimeout(() => {
-      if (!state.connected && state.peer) attemptConnection();
-    }, 1000 + state.reconnectCount * 500);
+      if (!state.connected && state.peer) {
+        attemptConnection();
+      }
+    }, 800 + state.reconnectCount * 300);
   }
 
-  // Send mit Fehlertoleranz
+  // Send input
   function send(action, buttonState) {
-    if (!state.connected || !state.conn) return;
+    if (!state.connected || !state.conn) {
+      console.debug('Not connected, skipping send');
+      return;
+    }
     try {
       state.conn.send({ action, state: buttonState });
     } catch (e) {
@@ -170,21 +173,13 @@
       }
     };
 
-    // Pointer Events (modern)
     el.addEventListener('pointerdown', down);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointerleave', up);
     el.addEventListener('pointercancel', up);
-
-    // Fallback Touch/Mouse
-    el.addEventListener('touchstart', down, { passive: false });
-    el.addEventListener('touchend', up, { passive: false });
-    el.addEventListener('mousedown', down);
-    el.addEventListener('mouseup', up);
-    el.addEventListener('mouseleave', up);
   }
 
-  // Jump (single press)
+  // Jump (single)
   function bindJumpButton(el) {
     el.addEventListener('pointerup', (e) => {
       e.preventDefault();
@@ -192,22 +187,13 @@
       el.classList.add('active');
       setTimeout(() => el.classList.remove('active'), 100);
     });
-
-    // Fallback
-    el.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (!state.connected) return;
-      send('jump', 'down');
-      el.classList.add('active');
-      setTimeout(() => el.classList.remove('active'), 100);
-    });
   }
 
-  // INIT - schnell!
+  // INIT
   async function init() {
     updateStatus('Lade...', 'connecting');
     
-    // Buttons SOFORT interaktiv machen
+    // Buttons sofort ready
     const left = document.getElementById('left');
     const right = document.getElementById('right');
     const jump = document.getElementById('jump');
@@ -219,19 +205,18 @@
       updateStatus('Buttons bereit', 'connecting');
     }
 
-    // PeerJS im Hintergrund laden
-    await loadPeerJS();
-    updateStatus('Starte Peer...', 'connecting');
-    
-    // Peer initialisieren
+    // Wait for PeerJS (max 5s)
+    await ensurePeerJS();
+
+    // Init peer
     if (window.Peer) {
       initPeer();
     } else {
-      updateStatus('PeerJS nicht verfügbar', 'error');
+      updateStatus('PeerJS offline', 'error');
+      console.error('PeerJS not loaded');
     }
   }
 
-  // Starte sofort!
   init();
 
   // Cleanup
