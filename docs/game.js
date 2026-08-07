@@ -1,4 +1,4 @@
-// game.js — läuft auf dem großen Bildschirm
+// game.js — Obby Game (Parkour/Platformer)
 (() => {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -11,19 +11,18 @@
   const qrCanvas = document.getElementById('qrCanvas');
 
   let gameRunning = false;
-  let score = 0;
-  let difficulty = 1;
+  let currentLevel = 1;
+  let levelTimer = 0;
+  let bestTime = localStorage.getItem('bestTime') || null;
 
   // Erstelle PeerJS Peer
   const peer = new Peer();
   let conn = null;
 
   peer.on('open', (id) => {
-    // build a controller URL
     const base = location.origin + location.pathname.replace(/\/$/, '');
     const controllerUrl = base + '/controller.html?peer=' + encodeURIComponent(id);
 
-    // Generate QR code
     if (window.QRCode && typeof QRCode.toCanvas === 'function') {
       QRCode.toCanvas(qrCanvas, controllerUrl, { width: 200 }, function (err) {
         if (err) console.error('QR error', err);
@@ -36,7 +35,6 @@
     info.textContent = '✓ Controller verbunden!';
     info.className = 'connected';
 
-    // Start game when connected
     setTimeout(() => {
       startGame();
     }, 500);
@@ -48,27 +46,76 @@
     conn.on('close', () => {
       info.textContent = 'Controller getrennt';
       info.className = 'waiting';
-      endGame();
+      resetGame();
     });
   });
 
   // Game state
   const inputs = { left: false, right: false, jump: false };
   const player = {
-    x: 60,
-    y: 280,
+    x: 50,
+    y: 300,
+    vx: 0,
     vy: 0,
-    w: 28,
-    h: 44,
+    w: 24,
+    h: 32,
     onGround: true,
-    color: '#00ff88',
-    trail: []
+    doubleJump: true,
+    color: '#00ff88'
   };
-  const obstacles = [];
-  let spawnTimer = 0;
-  let gameTimer = 0;
-  let frameCount = 0;
-  let lastFpsTime = performance.now();
+
+  // Platforms
+  let platforms = [];
+  let checkpoints = [];
+  let finishLine = null;
+
+  function generateLevel(level) {
+    platforms = [];
+    checkpoints = [];
+
+    // Start platform
+    platforms.push({ x: 20, y: canvas.height - 50, w: 60, h: 20, color: '#667eea' });
+
+    // Level 1 - Easy
+    if (level === 1) {
+      platforms.push({ x: 100, y: 400, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 180, y: 360, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 260, y: 320, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 340, y: 360, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 420, y: 400, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 500, y: 380, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 580, y: 340, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 660, y: 300, w: 60, h: 20, color: '#667eea' });
+      platforms.push({ x: 720, y: 260, w: 70, h: 20, color: '#667eea' });
+      finishLine = { x: 720, y: 240 };
+    }
+    // Level 2 - Medium
+    else if (level === 2) {
+      platforms.push({ x: 100, y: 380, w: 50, h: 15, color: '#f093fb' });
+      platforms.push({ x: 170, y: 340, w: 50, h: 15, color: '#f093fb' });
+      platforms.push({ x: 240, y: 300, w: 40, h: 15, color: '#f093fb' });
+      platforms.push({ x: 300, y: 350, w: 50, h: 15, color: '#f093fb' });
+      platforms.push({ x: 380, y: 320, w: 40, h: 15, color: '#f093fb' });
+      platforms.push({ x: 440, y: 280, w: 50, h: 15, color: '#f093fb' });
+      platforms.push({ x: 520, y: 240, w: 45, h: 15, color: '#f093fb' });
+      platforms.push({ x: 590, y: 200, w: 50, h: 15, color: '#f093fb' });
+      platforms.push({ x: 670, y: 160, w: 100, h: 20, color: '#f093fb' });
+      finishLine = { x: 670, y: 140 };
+    }
+    // Level 3 - Hard
+    else if (level === 3) {
+      platforms.push({ x: 80, y: 380, w: 40, h: 15, color: '#f5576c' });
+      platforms.push({ x: 140, y: 320, w: 35, h: 12, color: '#f5576c' });
+      platforms.push({ x: 210, y: 280, w: 40, h: 12, color: '#f5576c' });
+      platforms.push({ x: 280, y: 340, w: 35, h: 12, color: '#f5576c' });
+      platforms.push({ x: 350, y: 300, w: 40, h: 12, color: '#f5576c' });
+      platforms.push({ x: 420, y: 260, w: 35, h: 12, color: '#f5576c' });
+      platforms.push({ x: 490, y: 200, w: 45, h: 15, color: '#f5576c' });
+      platforms.push({ x: 570, y: 160, w: 40, h: 12, color: '#f5576c' });
+      platforms.push({ x: 650, y: 120, w: 130, h: 20, color: '#f5576c' });
+      finishLine = { x: 650, y: 100 };
+    }
+  }
 
   function handleInput(msg) {
     try {
@@ -81,111 +128,135 @@
     } catch (e) {}
   }
 
-  function spawn() {
-    const h = 20 + Math.random() * 60;
-    const speed = 220 + difficulty * 30;
-    obstacles.push({
-      x: canvas.width + 30,
-      w: 28,
-      h: h,
-      y: canvas.height - h - 10,
-      speed: speed,
-      color: `hsl(${Math.random() * 60}, 100%, 50%)`
-    });
-  }
-
   function startGame() {
     if (gameRunning) return;
-
     gameRunning = true;
-    score = 0;
-    difficulty = 1;
-    gameTimer = 0;
-    obstacles.length = 0;
-    spawnTimer = 0;
+    currentLevel = 1;
+    levelTimer = 0;
+    player.x = 50;
+    player.y = 300;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.doubleJump = true;
 
-    // Hide start screen
+    generateLevel(currentLevel);
+
     startScreen.classList.add('hidden');
     gameOverScreen.classList.remove('active');
-
-    info.textContent = 'SPIELEN!';
+    info.textContent = '🏃 OBBY - Level ' + currentLevel;
     info.className = 'connected';
+  }
 
-    console.log('Game started!');
+  function nextLevel() {
+    currentLevel++;
+    levelTimer = 0;
+    player.x = 50;
+    player.y = 300;
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.doubleJump = true;
+
+    if (currentLevel > 3) {
+      endGame();
+      return;
+    }
+
+    generateLevel(currentLevel);
+    info.textContent = '🏃 OBBY - Level ' + currentLevel;
   }
 
   function endGame() {
     gameRunning = false;
-    finalScoreEl.textContent = `Score: ${Math.floor(score)}`;
+    const totalTime = (levelTimer / 1000).toFixed(2);
+    finalScoreEl.textContent = `Alle Levels fertig! Zeit: ${totalTime}s`;
     gameOverScreen.classList.add('active');
-    info.textContent = 'Controller getrennt - Warte...';
+    info.textContent = 'Game finished!';
     info.className = 'waiting';
+
+    if (!bestTime || parseFloat(totalTime) < parseFloat(bestTime)) {
+      bestTime = totalTime;
+      localStorage.setItem('bestTime', bestTime);
+    }
+  }
+
+  function resetGame() {
+    gameRunning = false;
+    startScreen.classList.remove('hidden');
+    gameOverScreen.classList.remove('active');
   }
 
   function update(dt) {
     if (!gameRunning) return;
 
-    gameTimer += dt;
-    difficulty = 1 + gameTimer / 20; // Schwierigkeit nimmt zu
+    levelTimer += dt * 1000;
 
-    // Player movement
-    if (inputs.left && player.x > 0) player.x -= 200 * dt;
-    if (inputs.right && player.x < canvas.width - player.w) player.x += 200 * dt;
+    // Movement
+    if (inputs.left) player.vx = -150;
+    else if (inputs.right) player.vx = 150;
+    else player.vx *= 0.8;
 
-    // Jump
-    if (inputs.jump && player.onGround) {
-      player.vy = -9;
-      player.onGround = false;
-      inputs.jump = false;
-    }
+    // Apply velocity
+    player.x += player.vx * dt;
+    player.vy += 24 * dt; // Gravity
+    player.y += player.vy * dt;
 
-    // Gravity
-    player.vy += 24 * dt;
-    player.y += player.vy;
+    // Bounds
+    if (player.x < 0) player.x = 0;
+    if (player.x + player.w > canvas.width) player.x = canvas.width - player.w;
 
-    // Ground collision
-    if (player.y > canvas.height - player.h - 10) {
-      player.y = canvas.height - player.h - 10;
-      player.vy = 0;
-      player.onGround = true;
-    }
-
-    // Obstacles
-    for (const o of obstacles) {
-      o.x -= o.speed * dt;
-    }
-
-    // Remove offscreen obstacles
-    while (obstacles.length && obstacles[0].x + obstacles[0].w < -50) {
-      obstacles.shift();
-      score += 10 * difficulty;
-    }
-
-    // Collisions
-    for (const o of obstacles) {
+    // Platform collision
+    player.onGround = false;
+    for (const p of platforms) {
       if (
-        player.x < o.x + o.w &&
-        player.x + player.w > o.x &&
-        player.y < o.y + o.h &&
-        player.y + player.h > o.y
+        player.x + player.w > p.x &&
+        player.x < p.x + p.w &&
+        player.vy >= 0 &&
+        player.y + player.h >= p.y &&
+        player.y + player.h <= p.y + p.h + 10
       ) {
-        // Collision
-        endGame();
-        return;
+        player.y = p.y - player.h;
+        player.vy = 0;
+        player.onGround = true;
+        player.doubleJump = true;
       }
     }
 
-    // Spawn obstacles
-    spawnTimer += dt;
-    const spawnRate = Math.max(0.6, 1.2 - difficulty * 0.1);
-    if (spawnTimer > spawnRate) {
-      spawn();
-      spawnTimer = 0;
+    // Jump
+    if (inputs.jump) {
+      if (player.onGround) {
+        player.vy = -10;
+        player.onGround = false;
+        inputs.jump = false;
+      } else if (player.doubleJump) {
+        player.vy = -10;
+        player.doubleJump = false;
+        inputs.jump = false;
+      }
+    }
+
+    // Fall death
+    if (player.y > canvas.height) {
+      player.y = 300;
+      player.x = 50;
+      player.vy = 0;
+      player.onGround = true;
+      player.doubleJump = true;
+    }
+
+    // Finish line
+    if (
+      finishLine &&
+      player.x + player.w > finishLine.x &&
+      player.x < finishLine.x + 100 &&
+      player.y < finishLine.y + 50
+    ) {
+      nextLevel();
     }
   }
 
   function drawBackground() {
-    // Gradient background
     const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
     gradient.addColorStop(0, '#0a0a1a');
     gradient.addColorStop(0.5, '#1a1a3a');
@@ -193,94 +264,95 @@
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Stars background
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-    for (let i = 0; i < 20; i++) {
-      const x = (gameTimer * 10 + i * 40) % canvas.width;
-      const y = 20 + (i * 7) % 100;
-      ctx.fillRect(x, y, 2, 2);
+    // Grid
+    ctx.strokeStyle = 'rgba(102, 126, 234, 0.1)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < canvas.width; i += 50) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0);
+      ctx.lineTo(i, canvas.height);
+      ctx.stroke();
     }
   }
 
-  function drawGround() {
-    ctx.fillStyle = '#444';
-    ctx.fillRect(0, canvas.height - 10, canvas.width, 10);
+  function drawPlatforms() {
+    for (const p of platforms) {
+      // Shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.fillRect(p.x, p.y + 2, p.w, p.h);
 
-    // Animated ground pattern
-    const pattern = ctx.createPattern(
-      createPattern(),
-      'repeat'
-    );
-    ctx.fillStyle = '#555';
-    for (let i = 0; i < canvas.width; i += 40) {
-      const offset = (gameTimer * 100) % 40;
-      ctx.fillRect(i - offset, canvas.height - 8, 20, 8);
+      // Platform
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+
+      // Shine
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.fillRect(p.x, p.y, p.w, 4);
+
+      // Border
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(p.x, p.y, p.w, p.h);
     }
-  }
-
-  function createPattern() {
-    const p = document.createElement('canvas');
-    p.width = 40;
-    p.height = 8;
-    const pctx = p.getContext('2d');
-    pctx.fillStyle = '#666';
-    pctx.fillRect(0, 0, 20, 8);
-    return p;
   }
 
   function drawPlayer() {
-    // Player shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    // Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.beginPath();
-    ctx.ellipse(player.x + player.w / 2, canvas.height - 8, player.w / 2, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(player.x + player.w / 2, player.y + player.h + 3, player.w / 2, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Player glow
+    // Glow
     ctx.shadowColor = player.color;
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 20;
 
-    // Player body
+    // Body
     ctx.fillStyle = player.color;
     ctx.fillRect(player.x, player.y, player.w, player.h);
 
-    // Player shine
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-    ctx.fillRect(player.x + 2, player.y + 2, player.w - 4, 8);
+    // Head
+    ctx.fillStyle = player.color;
+    ctx.beginPath();
+    ctx.arc(player.x + player.w / 2, player.y - 8, player.w / 2 + 2, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.shadowBlur = 0;
   }
 
-  function drawObstacles() {
-    for (const o of obstacles) {
-      // Obstacle glow
-      ctx.shadowColor = o.color;
-      ctx.shadowBlur = 10;
+  function drawFinish() {
+    if (!finishLine) return;
 
-      // Main obstacle
-      ctx.fillStyle = o.color;
-      ctx.fillRect(o.x, o.y, o.w, o.h);
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+    ctx.fillRect(finishLine.x, finishLine.y, 100, 50);
 
-      // Highlight
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-      ctx.fillRect(o.x + 2, o.y + 2, o.w - 4, 4);
-
-      ctx.shadowBlur = 0;
-    }
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🏁', finishLine.x + 50, finishLine.y + 30);
   }
 
   function drawUI() {
-    // Score
+    // Level
     ctx.fillStyle = '#ffd700';
-    ctx.font = 'bold 24px Arial';
+    ctx.font = 'bold 20px Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(`Score: ${Math.floor(score)}`, 20, 30);
+    ctx.fillText(`Level: ${currentLevel}`, 20, 30);
 
-    // Difficulty
+    // Timer
+    const time = (levelTimer / 1000).toFixed(2);
     ctx.fillStyle = '#00ff88';
-    ctx.font = 'bold 14px Arial';
-    ctx.fillText(`Lvl: ${Math.floor(difficulty * 10) / 10}`, 20, 55);
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText(`Time: ${time}s`, 20, 55);
 
-    // Connected status
+    // Best time
+    if (bestTime) {
+      ctx.fillStyle = '#ff88ff';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(`Best: ${bestTime}s`, 20, 75);
+    }
+
+    // Connection
     if (conn && conn.open) {
       ctx.fillStyle = '#00ff88';
       ctx.font = 'bold 12px monospace';
@@ -290,19 +362,17 @@
   }
 
   function draw() {
-    // Clear and draw background
     drawBackground();
-    drawGround();
-
-    // Draw game elements
-    drawObstacles();
+    drawPlatforms();
+    drawFinish();
     drawPlayer();
     drawUI();
   }
 
   // FPS Counter
   let fps = 60;
-  let lastTime = performance.now();
+  let frameCount = 0;
+  let lastFpsTime = performance.now();
 
   function updateFPS() {
     frameCount++;
@@ -316,6 +386,7 @@
   }
 
   // Game loop
+  let lastTime = performance.now();
   function loop(t) {
     const dt = Math.min(0.05, (t - lastTime) / 1000);
     lastTime = t;
