@@ -5,80 +5,366 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Minigame — Bildschirm</title>
   <style>
-    body{font-family:Arial,Helvetica,sans-serif;text-align:center;margin:0;padding:12px;background:#111;color:#eee}
-    canvas{background:#222;display:block;margin:12px auto;border:2px solid #444}
-    #qr{margin-top:8px;min-height:220px}
-    #info{font-size:14px;color:#ccc;min-height:40px}
-    .small{font-size:12px;color:#999}
-    .loading{color:#ff9800;animation:pulse 1s infinite}
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+      background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+      color: #eee;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+      letter-spacing: 2px;
+    }
+
+    .container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    canvas {
+      background: linear-gradient(180deg, #0a0a0f 0%, #1a1a2e 100%);
+      display: block;
+      border: 3px solid #667eea;
+      box-shadow: 0 0 20px rgba(102, 126, 234, 0.5);
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    #info {
+      font-size: 14px;
+      color: #aaa;
+      min-height: 20px;
+      margin-top: 10px;
+      transition: all 0.3s ease;
+    }
+
+    #info.connected {
+      color: #00ff88;
+      font-weight: bold;
+    }
+
+    #info.waiting {
+      color: #ffd700;
+      animation: pulse 1.5s infinite;
+    }
+
+    #peerId {
+      font-size: 11px;
+      color: #666;
+      font-family: monospace;
+    }
+
+    #qr {
+      margin-top: 15px;
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #qr p {
+      color: #ccc;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+
+    #qr canvas {
+      border: 2px solid #667eea;
+      padding: 8px;
+      background: white;
+      border-radius: 4px;
+    }
+
+    /* Start Screen */
+    #startScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      animation: fadeInStart 0.6s ease;
+    }
+
+    #startScreen.hidden {
+      animation: fadeOutStart 0.6s ease forwards;
+    }
+
+    @keyframes fadeInStart {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes fadeOutStart {
+      from { opacity: 1; }
+      to { opacity: 0; pointer-events: none; }
+    }
+
+    .start-content {
+      text-align: center;
+      animation: slideUp 0.8s ease 0.2s backwards;
+    }
+
+    @keyframes slideUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .start-content h2 {
+      font-size: 48px;
+      color: white;
+      text-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      margin-bottom: 20px;
+      animation: bounce 2s infinite;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+
+    .start-content p {
+      font-size: 18px;
+      color: rgba(255, 255, 255, 0.9);
+      margin-bottom: 30px;
+    }
+
+    .qr-scanner {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      margin-bottom: 20px;
+    }
+
+    .qr-scanner h3 {
+      color: #333;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+
+    .qr-scanner canvas {
+      border: none !important;
+      box-shadow: none !important;
+      display: block;
+    }
+
+    .status-badge {
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.2);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      margin-top: 20px;
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-badge.connected {
+      background: rgba(0, 255, 136, 0.2);
+      color: #00ff88;
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* Game Over Screen */
+    #gameOverScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+
+    #gameOverScreen.active {
+      display: flex;
+      animation: fadeIn 0.5s ease;
+    }
+
+    .game-over-content {
+      text-align: center;
+      animation: popIn 0.5s ease;
+    }
+
+    @keyframes popIn {
+      from {
+        opacity: 0;
+        transform: scale(0.8);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    .game-over-content h2 {
+      font-size: 48px;
+      color: #ff4444;
+      margin-bottom: 20px;
+      text-shadow: 0 2px 10px rgba(255, 68, 68, 0.5);
+    }
+
+    .score-display {
+      font-size: 36px;
+      color: #ffd700;
+      margin-bottom: 30px;
+      font-weight: bold;
+    }
+
+    .restart-btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 15px 40px;
+      font-size: 18px;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+    }
+
+    .restart-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.6);
+    }
+
+    .stats {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.5);
+      color: #00ff88;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+      z-index: 50;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
   </style>
 </head>
 <body>
-  <h1>🎮 Minigame — Bildschirm</h1>
-  <canvas id="game" width="800" height="360"></canvas>
-  <div id="info" class="loading">Lade Peer...</div>
-  <div id="peerId" class="small" style="display:none;"></div>
-  <div id="qr"></div>
+  <div class="container">
+    <h1>🎮 Minigame</h1>
+    <canvas id="game" width="800" height="360"></canvas>
+    <div id="info" class="waiting">Verbinde mit dem Controller...</div>
+    <div id="peerId" class="small"></div>
+    <div id="qr"></div>
+
+    <div id="startScreen">
+      <div class="start-content">
+        <h2>🎮</h2>
+        <p>Warte auf Controller...</p>
+        <div class="qr-scanner">
+          <h3>Scanne den QR-Code:</h3>
+          <canvas id="qrCanvas" width="200" height="200"></canvas>
+        </div>
+        <div class="status-badge">Bereit zum Spielen</div>
+      </div>
+    </div>
+
+    <div id="gameOverScreen">
+      <div class="game-over-content">
+        <h2>GAME OVER</h2>
+        <div class="score-display" id="finalScore">Score: 0</div>
+        <button class="restart-btn" id="restartBtn">Nochmal spielen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats">FPS: 60</div>
 
   <script>
-    // Async load mit Fallback
+    // Async load libraries
     async function loadLibraries() {
-      // PeerJS
-      const peerPromise = new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          console.warn('PeerJS timeout - fallback');
-          const fallback = document.createElement('script');
-          fallback.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js';
-          fallback.onload = resolve;
-          fallback.onerror = resolve;
-          document.head.appendChild(fallback);
-        }, 3000);
+      return Promise.all([
+        new Promise(resolve => {
+          const timeout = setTimeout(() => {
+            console.warn('PeerJS timeout');
+            const fallback = document.createElement('script');
+            fallback.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js';
+            fallback.onload = resolve;
+            document.head.appendChild(fallback);
+          }, 3000);
 
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
-        script.async = true;
-        script.onload = () => { clearTimeout(timeout); resolve(); };
-        script.onerror = () => {
-          clearTimeout(timeout);
-          console.error('PeerJS failed');
-          resolve();
-        };
-        document.head.appendChild(script);
-      });
+          const script = document.createElement('script');
+          script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
+          script.async = true;
+          script.onload = () => { clearTimeout(timeout); resolve(); };
+          document.head.appendChild(script);
+        }),
+        new Promise(resolve => {
+          const timeout = setTimeout(() => {
+            const fallback = document.createElement('script');
+            fallback.src = 'https://unpkg.com/qrcode@1.4.4/build/qrcode.min.js';
+            fallback.onload = resolve;
+            document.head.appendChild(fallback);
+          }, 2000);
 
-      // QRCode
-      const qrPromise = new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          console.warn('QRCode timeout - fallback');
-          const fallback = document.createElement('script');
-          fallback.src = 'https://unpkg.com/qrcode@1.4.4/build/qrcode.min.js';
-          fallback.onload = resolve;
-          fallback.onerror = resolve;
-          document.head.appendChild(fallback);
-        }, 2000);
-
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js';
-        script.async = true;
-        script.onload = () => { clearTimeout(timeout); resolve(); };
-        script.onerror = () => {
-          clearTimeout(timeout);
-          console.error('QRCode failed');
-          resolve();
-        };
-        document.head.appendChild(script);
-      });
-
-      await Promise.all([peerPromise, qrPromise]);
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js';
+          script.async = true;
+          script.onload = () => { clearTimeout(timeout); resolve(); };
+          document.head.appendChild(script);
+        })
+      ]);
     }
 
-    // Start game sofort, libraries im Hintergrund
+    // Load and start game
     loadLibraries().then(() => {
-      const scriptEl = document.createElement('script');
-      scriptEl.src = 'game.js';
-      scriptEl.async = true;
-      document.body.appendChild(scriptEl);
+      const gameScript = document.createElement('script');
+      gameScript.src = 'game.js';
+      gameScript.async = true;
+      document.body.appendChild(gameScript);
     });
   </script>
 </body>
