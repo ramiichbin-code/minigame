@@ -7,20 +7,40 @@
   <style>
     body{font-family:Arial,Helvetica,sans-serif;text-align:center;padding:10px;background:#fafafa}
     .row{display:flex;justify-content:center;margin-top:18px}
-    button{font-size:20px;padding:14px;margin:6px;width:28%;border-radius:8px;border:1px solid #ccc}
-    #status{color:#555}
+    button{font-size:20px;padding:14px;margin:6px;width:28%;border-radius:8px;border:1px solid #ccc;cursor:pointer;transition:all 0.1s}
+    button:active,.active{background:#4CAF50;color:white;transform:scale(0.98)}
+    #status{color:#555;font-weight:bold;min-height:20px}
+    .status-connecting{color:#ff9800}
+    .status-connected{color:#4CAF50}
+    .status-error{color:#f44336}
+    .status-disconnected{color:#999}
   </style>
 </head>
 <body>
   <h1>Controller</h1>
-  <div id="status">Verbinde...</div>
+  <div id="status">Lade...</div>
   <div class="row">
     <button id="left">◀</button>
     <button id="jump">⤴</button>
     <button id="right">▶</button>
   </div>
 
-  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-  <script src="controller.js"></script>
+  <script>
+    // Lade PeerJS async mit Fallback
+    (function loadPeerJS() {
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js';
+      script.async = true;
+      script.onerror = function() {
+        // Fallback CDN
+        const fallback = document.createElement('script');
+        fallback.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js';
+        fallback.async = true;
+        document.head.appendChild(fallback);
+      };
+      document.head.appendChild(script);
+    })();
+  </script>
+  <script src="controller.js" defer></script>
 </body>
 </html>
