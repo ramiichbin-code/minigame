@@ -5,259 +5,209 @@
   const status = document.getElementById('status');
   
   if (!peerTo) {
-    status.textContent = 'Keine Peer-ID in der URL. Scanne den QR-Code vom Bildschirm.';
+    status.textContent = 'Keine Peer-ID in der URL';
     return;
   }
 
-  // Configuration
-  const config = {
-    reconnectDelay: 1000,
-    maxReconnectAttempts: 5,
-    messageQueueMax: 100,
-    debounceMs: 16 // ~60fps
-  };
-
-  // State management
+  // State
   const state = {
     peer: null,
     conn: null,
-    reconnectCount: 0,
     connected: false,
-    messageQueue: [],
-    lastSendTime: 0,
     buttonStates: { left: false, right: false, jump: false },
-    reconnectTimeout: null,
-    supportsTouchEvents: 'ontouchstart' in window,
-    supportsPointerEvents: 'PointerEvent' in window
+    reconnectCount: 0
   };
 
-  // Initialize Peer with error handling
-  function initPeer() {
-    if (state.peer) state.peer.destroy();
-    
-    state.peer = new Peer({
-      config: {
-        iceServers: [
-          { urls: ['stun:stun.l.google.com:19302'] },
-          { urls: ['stun:stun1.l.google.com:19302'] }
-        ]
+  // Schnelle Fehlerbehandlung
+  function updateStatus(msg, type = 'info') {
+    status.textContent = msg;
+    status.className = `status-${type}`;
+    console.log(`[${type}]`, msg);
+  }
+
+  // PeerJS mit TIMEOUT laden
+  function loadPeerJS() {
+    return new Promise((resolve) => {
+      if (window.Peer) {
+        resolve();
+        return;
       }
-    });
 
-    state.peer.on('open', (id) => {
-      attemptConnection();
-    });
+      let loaded = false;
+      const timeout = setTimeout(() => {
+        if (!loaded) {
+          console.warn('PeerJS timeout - trying fallback');
+          updateStatus('PeerJS Fallback...', 'connecting');
+          loadFallbackPeerJS().then(resolve);
+        }
+      }, 3000); // 3 Sekunden Timeout
 
-    state.peer.on('error', (err) => {
-      updateStatus(`Fehler: ${err.type}`, 'error');
-      if (err.type === 'network' || err.type === 'peer-unavailable') {
-        scheduleReconnect();
-      }
-    });
-
-    state.peer.on('disconnected', () => {
-      updateStatus('Verbindung getrennt', 'disconnected');
-      scheduleReconnect();
+      const checkPeer = setInterval(() => {
+        if (window.Peer) {
+          loaded = true;
+          clearTimeout(timeout);
+          clearInterval(checkPeer);
+          resolve();
+        }
+      }, 100);
     });
   }
 
-  // Connection management
+  // Fallback CDN
+  function loadFallbackPeerJS() {
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js';
+      script.async = true;
+      script.onload = () => {
+        updateStatus('PeerJS geladen', 'connecting');
+        resolve();
+      };
+      script.onerror = () => {
+        updateStatus('PeerJS offline - Verbindung wird versucht...', 'error');
+        resolve(); // Trotzdem weitermachen
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  // Peer initialisieren
+  function initPeer() {
+    try {
+      state.peer = new Peer();
+      
+      state.peer.on('open', (id) => {
+        attemptConnection();
+      });
+
+      state.peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        updateStatus(`Fehler: ${err.type}`, 'error');
+      });
+
+      state.peer.on('disconnected', () => {
+        state.connected = false;
+        scheduleReconnect();
+      });
+    } catch (e) {
+      console.error('Init error:', e);
+      updateStatus('Fehler beim Starten', 'error');
+      setTimeout(initPeer, 2000);
+    }
+  }
+
+  // Verbindung
   function attemptConnection() {
     if (state.connected || !state.peer) return;
 
-    state.conn = state.peer.connect(peerTo, {
-      reliable: true,
-      serialization: 'json'
-    });
+    try {
+      state.conn = state.peer.connect(peerTo, {
+        reliable: true,
+        serialization: 'json'
+      });
 
-    state.conn.on('open', () => {
-      state.connected = true;
-      state.reconnectCount = 0;
-      updateStatus(`Verbunden mit ${peerTo.slice(0, 8)}...`, 'connected');
-      processMessageQueue();
-    });
+      state.conn.on('open', () => {
+        state.connected = true;
+        state.reconnectCount = 0;
+        updateStatus('✓ Verbunden!', 'connected');
+      });
 
-    state.conn.on('close', () => {
-      state.connected = false;
-      updateStatus('Verbindung geschlossen', 'disconnected');
+      state.conn.on('close', () => {
+        state.connected = false;
+        scheduleReconnect();
+      });
+
+      state.conn.on('error', (err) => {
+        state.connected = false;
+        updateStatus('Verbindung weg', 'disconnected');
+        scheduleReconnect();
+      });
+    } catch (e) {
+      console.error('Connection error:', e);
       scheduleReconnect();
-    });
-
-    state.conn.on('error', (err) => {
-      state.connected = false;
-      updateStatus(`Verbindungsfehler: ${err}`, 'error');
-      scheduleReconnect();
-    });
+    }
   }
 
   function scheduleReconnect() {
-    if (state.reconnectCount >= config.maxReconnectAttempts) {
-      updateStatus('Maximale Reconnect-Versuche erreicht', 'error');
+    if (state.reconnectCount >= 3) {
+      updateStatus('Zu viele Versuche', 'error');
       return;
     }
-
-    if (state.reconnectTimeout) clearTimeout(state.reconnectTimeout);
-    
     state.reconnectCount++;
-    const delay = config.reconnectDelay * Math.pow(1.5, state.reconnectCount - 1);
-    updateStatus(`Verbinde neu... (${state.reconnectCount}/${config.maxReconnectAttempts})`, 'connecting');
-    
-    state.reconnectTimeout = setTimeout(() => {
-      if (!state.connected) attemptConnection();
-    }, delay);
+    updateStatus(`Versuche ${state.reconnectCount}...`, 'connecting');
+    setTimeout(() => {
+      if (!state.connected && state.peer) attemptConnection();
+    }, 1000 + state.reconnectCount * 500);
   }
 
-  // Message queue and sending
-  function queueMessage(action, buttonState) {
-    if (state.messageQueue.length >= config.messageQueueMax) {
-      state.messageQueue.shift(); // Drop oldest if queue full
-    }
-    
-    state.messageQueue.push({
-      action,
-      state: buttonState,
-      timestamp: performance.now()
-    });
-
-    sendNextMessage();
-  }
-
-  function sendNextMessage() {
-    if (!state.connected || state.messageQueue.length === 0) return;
-
-    const now = performance.now();
-    if (now - state.lastSendTime < config.debounceMs) return;
-
-    const msg = state.messageQueue.shift();
+  // Send mit Fehlertoleranz
+  function send(action, buttonState) {
+    if (!state.connected || !state.conn) return;
     try {
-      state.conn.send(msg);
-      state.lastSendTime = now;
+      state.conn.send({ action, state: buttonState });
     } catch (e) {
       console.error('Send error:', e);
-      state.messageQueue.unshift(msg); // Re-queue on failure
     }
   }
 
-  function processMessageQueue() {
-    while (state.messageQueue.length > 0) {
-      sendNextMessage();
-    }
-  }
-
-  // Status updates with visual feedback
-  function updateStatus(message, type = 'info') {
-    status.textContent = message;
-    status.className = `status-${type}`;
-    console.log(`[${type.toUpperCase()}]`, message);
-  }
-
-  // Button binding with modern event handling
+  // Button Handler
   function bindButton(el, action) {
-    const handlers = {
-      pointerdown: (e) => handleButtonDown(e, el, action),
-      pointerup: (e) => handleButtonUp(e, el, action),
-      pointerleave: (e) => handleButtonUp(e, el, action)
-    };
-
-    // Use pointer events if available (handles mouse, touch, pen)
-    if (state.supportsPointerEvents) {
-      Object.entries(handlers).forEach(([event, handler]) => {
-        el.addEventListener(event, handler, { passive: false });
-      });
-    } else {
-      // Fallback for older browsers
-      el.addEventListener('touchstart', (e) => { e.preventDefault(); handleButtonDown(e, el, action); }, { passive: false });
-      el.addEventListener('touchend', (e) => { e.preventDefault(); handleButtonUp(e, el, action); }, { passive: false });
-      el.addEventListener('mousedown', (e) => { e.preventDefault(); handleButtonDown(e, el, action); });
-      el.addEventListener('mouseup', (e) => { e.preventDefault(); handleButtonUp(e, el, action); });
-      el.addEventListener('mouseleave', (e) => { e.preventDefault(); handleButtonUp(e, el, action); });
-    }
-  }
-
-  function handleButtonDown(e, el, action) {
-    e.preventDefault();
-    if (!state.buttonStates[action]) {
-      state.buttonStates[action] = true;
-      el.classList.add('active');
-      queueMessage(action, 'down');
-    }
-  }
-
-  function handleButtonUp(e, el, action) {
-    e.preventDefault();
-    if (state.buttonStates[action]) {
-      state.buttonStates[action] = false;
-      el.classList.remove('active');
-      queueMessage(action, 'up');
-    }
-  }
-
-  // Special handling for jump (single press)
-  function bindJumpButton(el) {
-    const jumpHandler = (e) => {
+    const down = (e) => {
       e.preventDefault();
-      el.classList.add('active');
-      queueMessage('jump', 'down');
-      setTimeout(() => el.classList.remove('active'), 100);
+      if (!state.buttonStates[action]) {
+        state.buttonStates[action] = true;
+        el.classList.add('active');
+        send(action, 'down');
+      }
     };
 
-    if (state.supportsPointerEvents) {
-      el.addEventListener('pointerup', jumpHandler, { passive: false });
-    } else {
-      el.addEventListener('click', jumpHandler);
-    }
+    const up = (e) => {
+      e.preventDefault();
+      if (state.buttonStates[action]) {
+        state.buttonStates[action] = false;
+        el.classList.remove('active');
+        send(action, 'up');
+      }
+    };
+
+    // Pointer Events (modern)
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointerleave', up);
+    el.addEventListener('pointercancel', up);
+
+    // Fallback Touch/Mouse
+    el.addEventListener('touchstart', down, { passive: false });
+    el.addEventListener('touchend', up, { passive: false });
+    el.addEventListener('mousedown', down);
+    el.addEventListener('mouseup', up);
+    el.addEventListener('mouseleave', up);
   }
 
-  // Device orientation support
-  function setupDeviceOrientation() {
-    if (!state.supportsTouchEvents || !window.DeviceOrientationEvent) return;
+  // Jump (single press)
+  function bindJumpButton(el) {
+    el.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      send('jump', 'down');
+      el.classList.add('active');
+      setTimeout(() => el.classList.remove('active'), 100);
+    });
 
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-      // iOS 13+ requires permission
-      const button = document.createElement('button');
-      button.textContent = 'Bewegungssteuerung aktivieren';
-      button.style.cssText = 'display:block;margin:10px auto;padding:10px;font-size:14px;';
-      document.body.appendChild(button);
-
-      button.addEventListener('click', () => {
-        DeviceOrientationEvent.requestPermission()
-          .then(permissionState => {
-            if (permissionState === 'granted') {
-              window.addEventListener('deviceorientation', handleDeviceOrientation);
-              button.remove();
-              updateStatus('Bewegungssteuerung aktiv', 'info');
-            }
-          })
-          .catch(console.error);
-      });
-    } else {
-      // Non-iOS devices
-      window.addEventListener('deviceorientation', handleDeviceOrientation);
-    }
+    // Fallback
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!state.connected) return;
+      send('jump', 'down');
+      el.classList.add('active');
+      setTimeout(() => el.classList.remove('active'), 100);
+    });
   }
 
-  function handleDeviceOrientation(event) {
-    const gamma = event.gamma; // -90 to 90, left to right
-    const threshold = 20;
-
-    const wasLeft = state.buttonStates.left;
-    const wasRight = state.buttonStates.right;
-
-    state.buttonStates.left = gamma < -threshold;
-    state.buttonStates.right = gamma > threshold;
-
-    if (wasLeft !== state.buttonStates.left) {
-      queueMessage('left', state.buttonStates.left ? 'down' : 'up');
-    }
-    if (wasRight !== state.buttonStates.right) {
-      queueMessage('right', state.buttonStates.right ? 'down' : 'up');
-    }
-  }
-
-  // Initialize
-  function init() {
-    initPeer();
-
+  // INIT - schnell!
+  async function init() {
+    updateStatus('Lade...', 'connecting');
+    
+    // Buttons SOFORT interaktiv machen
     const left = document.getElementById('left');
     const right = document.getElementById('right');
     const jump = document.getElementById('jump');
@@ -266,20 +216,27 @@
       bindButton(left, 'left');
       bindButton(right, 'right');
       bindJumpButton(jump);
-      
-      // Optional: device orientation
-      // setupDeviceOrientation();
+      updateStatus('Buttons bereit', 'connecting');
     }
 
-    updateStatus('Verbinde...', 'connecting');
+    // PeerJS im Hintergrund laden
+    await loadPeerJS();
+    updateStatus('Starte Peer...', 'connecting');
+    
+    // Peer initialisieren
+    if (window.Peer) {
+      initPeer();
+    } else {
+      updateStatus('PeerJS nicht verfügbar', 'error');
+    }
   }
 
-  // Cleanup on unload
+  // Starte sofort!
+  init();
+
+  // Cleanup
   window.addEventListener('beforeunload', () => {
-    if (state.reconnectTimeout) clearTimeout(state.reconnectTimeout);
     if (state.conn) state.conn.close();
     if (state.peer) state.peer.destroy();
   });
-
-  init();
 })();
