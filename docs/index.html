@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Minigame — Bildschirm</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;text-align:center;margin:0;padding:12px;background:#111;color:#eee}
+    canvas{background:#222;display:block;margin:12px auto;border:2px solid #444}
+    #qr{margin-top:8px}
+    #info{font-size:14px;color:#ccc}
+    .small{font-size:12px;color:#999}
+  </style>
+</head>
+<body>
+  <h1>Minigame — Bildschirm</h1>
+  <canvas id="game" width="800" height="360"></canvas>
+  <div id="info">Warte auf Controller... <span id="peerId" class="small"></span></div>
+  <div id="qr"></div>
+
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
